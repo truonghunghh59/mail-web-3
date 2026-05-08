@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quản lý Email Online - Auto Filter</title>
+
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+
+<style>
+body {
+  font-family: sans-serif;
+  background: #f0f2f5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  transition: background .5s, color .5s;
+  color: initial;
+}
+body.duplicate-mode {
+  background: #8b0000 !important;
+  color: black !important;
+}
+
+textarea, input, button {
+  font-size: 16px;
+  width: 90%;
+  max-width: 340px;
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  box-sizing: border-box;
+}
+
+button {
+  background: #007bff;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+#deleteListButton { background: #0f4d0a; }
+#copyButton {
+  font-size: 20px;
+  padding: 18px;
+  width: 95%;
+  max-width: 380px;
+  background: #a728a7;
+}
+#clearLogsButton { background: #ffc107; color: black; }
+
+#customToast {
+  position: fixed;
+  top: -100px;
+  left: 0;
+  width: 100%;
+  background-color: #343a40;
+  color: white;
+  text-align: center;
+  padding: 16px 10px;
+  font-size: 18px;
+  font-weight: bold;
+  box-shadow: 0 4px 12px rgba(0,0,0,.3);
+  z-index: 9999;
+  transition: top .5s ease-in-out;
+}
+#customToast.show { top: 0; }
+#customToast.error { background-color: #d93025; }
+#customToast.success { background-color: #28a745; }
+</style>
+</head>
+
+<body>
+
+<div id="customToast"></div>
+
+<h3>📨 Web mail của anh Móm </h3>
+
+<textarea id="emailListInput" placeholder="Dán email, text rác, phân cách bất kỳ"></textarea>
+<button id="addListButton">➕ Thêm Email</button>
+<button id="deleteListButton">🗑️ Xóa Danh Sách Email</button>
+
+<input type="text" id="emailOutput" readonly placeholder="Email sẽ xuất hiện ở đây">
+<button id="manualCopyButton">📋 Copy</button>
+
+<p id="count">📊 Số email còn lại: 0</p>
+
+<button id="clearLogsButton">🧹 Clear Log Copy</button>
+<button id="copyButton">📋 Lấy & Copy Email</button>
+
+<script>
+/* ========= FIREBASE ========= */
+const firebaseConfig = {
+  apiKey: "AIzaSyBP3O9oPglr_8IXtbxjQGQRtbnbCcv2QqU",
+  authDomain: "webamommm.firebaseapp.com",
+  databaseURL: "https://webamommm-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "webamommm",
+  storageBucket: "webamommm.firebasestorage.app",
+  messagingSenderId: "65179263173",
+  appId: "1:65179263173:web:f098ab18c9a91aae74d0ac",
+  measurementId: "G-X8YEBG7BFL"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const emailRef = db.ref("emails2");
+const copyLogsRef = db.ref("copyLogs2");
+
+let emailList = [];
+let isDuplicateToast = false;
+
+/* ========= DEVICE ID ========= */
+let deviceId = localStorage.getItem("deviceId");
+if (!deviceId) {
+  deviceId = "dev_" + Math.random().toString(36).substring(2,10);
+  localStorage.setItem("deviceId", deviceId);
+}
+
+/* ========= UTILS ========= */
+function extractEmails(text) {
+  const regex = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
+  return [...new Set(text.match(regex) || [])];
+}
+
+function updateCount() {
+  document.getElementById("count").textContent =
+    `📊 Số email còn lại: ${emailList.length}`;
+}
+
+/* ========= TOAST ========= */
+function showToast(msg, type="") {
+  const t = document.getElementById("customToast");
+  t.textContent = msg;
+  t.className = "show " + type;
+
+  if (type !== "error") {
+    setTimeout(() => {
+      if (!isDuplicateToast) t.className = "";
+    }, 4000);
+  }
+}
+
+function showDuplicateToast(msg) {
+  isDuplicateToast = true;
+  document.body.classList.add("duplicate-mode");
+  showToast(msg, "error");
+}
+
+function hideDuplicateToast() {
+  isDuplicateToast = false;
+  document.body.classList.remove("duplicate-mode");
+  document.getElementById("customToast").className = "";
+}
+
+/* ========= COPY ========= */
+function copyText(text) {
+  navigator.clipboard.writeText(text)
+    .then(() => showToast(`✅ Đã copy: ${text}`, "success"))
+    .catch(() => showToast("⚠️ Không thể copy", "error"));
+}
+
+/* ========= FIREBASE LISTENER ========= */
+emailRef.on("value", snap => {
+  const data = snap.val();
+  emailList = data ? Object.values(data) : [];
+  updateCount();
+});
+
+/* ========= ADD EMAIL ========= */
+addListButton.onclick = () => {
+  const emails = extractEmails(emailListInput.value);
+  if (!emails.length) return showToast("⚠️ Không có email hợp lệ", "error");
+  emails.forEach(e => emailRef.push(e));
+  emailListInput.value = "";
+  showToast(`✅ Đã thêm ${emails.length} email`, "success");
+};
+
+/* ========= DELETE LIST ========= */
+deleteListButton.onclick = () => {
+  if (!confirm("Xóa toàn bộ email?")) return;
+  emailRef.remove();
+  showToast("✅ Đã xóa danh sách", "success");
+};
+
+/* ========= MANUAL COPY ========= */
+manualCopyButton.onclick = () => {
+  if (!emailOutput.value) return showToast("⚠️ Không có email", "error");
+  copyText(emailOutput.value);
+};
+
+/* ========= AUTO COPY + CHECK TRÙNG ========= */
+copyButton.onclick = () => {
+  hideDuplicateToast();
+
+  if (!emailList.length)
+    return showToast("⚠️ Danh sách đã hết email", "error");
+
+  const email = emailList[Math.floor(Math.random() * emailList.length)];
+  emailOutput.value = email;
+  copyText(email);
+
+  emailRef.orderByValue().equalTo(email).limitToFirst(1).once("value", s => {
+    s.forEach(c => c.ref.remove());
+  });
+
+  const now = Date.now();
+  copyLogsRef.child(now + "_" + deviceId).set({ email, time: now, deviceId });
+
+  copyLogsRef.orderByChild("time").startAt(now - 15000).once("value", snap => {
+    const logs = snap.val() || {};
+    for (const k in logs) {
+      const log = logs[k];
+      if (log.email === email && log.deviceId !== deviceId) {
+        showDuplicateToast(`⚠️ Email "${email}" đã bị lấy bởi thiết bị khác!`);
+        break;
+      }
+    }
+  });
+};
+
+/* ========= CLEAR LOG ========= */
+clearLogsButton.onclick = () => {
+  copyLogsRef.remove();
+  showToast("✅ Đã clear log", "success");
+};
+</script>
+
+</body>
+</html>
